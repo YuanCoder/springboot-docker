@@ -1,0 +1,59 @@
+import com.bmuschko.gradle.docker.tasks.image.DockerBuildImage
+import com.bmuschko.gradle.docker.tasks.image.DockerRemoveImage
+import com.bmuschko.gradle.docker.tasks.image.Dockerfile
+
+buildscript {
+    repositories {
+        maven { url "https://plugins.gradle.org/m2/" }
+    }
+    dependencies {
+        classpath "com.bmuschko:gradle-docker-plugin:4.8.0"
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:2.1.5.RELEASE"
+    }
+}
+
+// ugly workaround
+if (project.getExtensions().findByName("springBoot") == null) {
+    apply plugin: org.springframework.boot.gradle.plugin.SpringBootPlugin
+}
+apply plugin: com.bmuschko.gradle.docker.DockerRemoteApiPlugin
+apply plugin: com.bmuschko.gradle.docker.DockerJavaApplicationPlugin
+apply plugin: com.bmuschko.gradle.docker.DockerSpringBootApplicationPlugin
+
+docker {
+    url = 'https://hub.docker.com/'
+}
+
+task cleanDockerImage(type: DockerRemoveImage) {
+    targetImageId project.group + "/" + project.name + ":" + project.version
+    force = true
+    onError { exception ->
+        // Ignore exception if container does not exist otherwise throw it
+        println 'first run build image'
+    
+}
+
+task cleanDocker(type: Delete, dependsOn: cleanDockerImage) {
+    delete fileTree("${buildDir}/docker") {
+        include '**/*'
+    }
+}
+
+task copyBuildToDocker(type: Copy, dependsOn: build) {
+    dependsOn cleanDocker
+    from "build/libs/${project.getName()}-${version}.jar"
+    into 'build/docker'
+}
+
+task createDockerFile(type: Dockerfile, dependsOn: copyBuildToDocker) {
+
+    from "openjdk:8-jdk"
+    instruction "MAINTAINER yuan_268311@163.com"
+    addFile "${project.getName()}-${version}.jar", "/app/${project.getName()}-${version}"
+    entryPoint("sh", "-c", "java \$JAVA_OPTS -jar /app/${project.getName()}-${version}")
+}
+
+task buildDockerImage(type: DockerBuildImage, dependsOn: createDockerFile) {
+    inputDir = createDockerFile.destFile.asFile.get().parentFile
+    tag = project.group + "/" + project.name + ":" + project.version
+}
